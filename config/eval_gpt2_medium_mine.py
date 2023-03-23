@@ -9,5 +9,6 @@ dataset = 'lambada'
 
 wandb_log = True
 wandb_project = 'inshrinkarator_nanogpt'
-init_from = 'gpt2-medium'
-wandb_run_name=f'eval_{dataset}_gpt2-medium-openai'
+init_from='resume'
+ckpt_path='/coc/scratch/inshrinkarator/checkpoints/nanogpt_3-21/gpt2-medium_every_200ba/ckpt_step_10000.pt'
+wandb_run_name=f'eval_{dataset}_gpt2-medium-mine'

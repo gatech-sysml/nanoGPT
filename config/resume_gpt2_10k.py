@@ -1,24 +1,22 @@
-# config for training GPT-2 (124M) down to very nice loss of ~2.85 on 1 node of 8X A100 40GB
-# launch as the following (e.g. in a screen session) and wait ~5 days:
-# $ torchrun --standalone --nproc_per_node=8 train.py config/train_gpt2.py
-
+# inshrinkarator paths, wandb etc
+always_save_checkpoint = False
 wandb_log = True
 wandb_project = 'inshrinkarator_nanogpt'
-wandb_run_name='gpt2-medium-resume10k'
+wandb_run_name='gpt2-medium-resume10k_2'
 ckpt_path='/coc/scratch/inshrinkarator/checkpoints/nanogpt_3-21/gpt2-medium_every_200ba/ckpt_step_10000.pt'
-out_dir= '/serenity/scratch/inshrinkarator/checkpoints/nanogpt_3-21/gpt2-medium_every_200ba'
+out_dir= '/serenity/scratch/inshrinkarator/checkpoints/nanogpt_3-21/gpt2-medium_every_200ba_resume10k_2'
 init_from='resume'
 assert out_dir != '', "out_dir not set"
+
 # these make the total batch size be ~0.5M
 # 12 batch size * 1024 block size * 5 gradaccum * 8 GPUs = 491,520
 batch_size = 16
 block_size = 1024
 gradient_accumulation_steps = 4
 
-# this makes total number of tokens be 300B
 max_iters = 22000
 lr_decay_iters = 22000
-warmup_iters = 200
+warmup_iters = 13000
 # eval stuff
 eval_interval = 200
 eval_iters = 20
@@ -33,5 +31,5 @@ n_head = 16
 n_embd = 1024
 
 # learning rates
-learning_rate = 4e-4 #
+learning_rate = 1e-4 #
 min_lr = 4e-5
