@@ -205,6 +205,7 @@ if ddp:
 @torch.no_grad()
 def estimate_loss():
     out = {}
+    perplexities = {}
     model.eval()
     for split in ['train', 'val']:
         losses = torch.zeros(eval_iters)
@@ -216,6 +217,7 @@ def estimate_loss():
             if eval_only and master_process:
                 print(f"eval iter {k}, {split} loss = {loss.item()}", flush=True, end='\r')
         out[split] = losses.mean()
+        perplexities[split] = torch.exp(out[split])
     model.train()
     return out
 
@@ -253,7 +255,7 @@ while True:
 
     # evaluate the loss on train/val sets and write checkpoints
     if iter_num % eval_interval == 0 and master_process:
-        losses = estimate_loss()
+        losses, perplexities = estimate_loss()
         print(
             f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
         if eval_only:
@@ -262,6 +264,8 @@ while True:
                     "eval_train_loss": losses['train'],
                     "eval_val_loss": losses['val'],
                     "eval_iters": eval_iters,
+                    "eval_train_perplexity": perplexities['train'],
+                    "eval_val_perplexity": perplexities['val'],
                 })
             break
         if wandb_log:
