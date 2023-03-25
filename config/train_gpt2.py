@@ -3,23 +3,23 @@
 always_save_checkpoint = True
 wandb_log = True
 wandb_project = 'inshrinkarator_nanogpt'
-wandb_run_name='gpt2-medium'
-out_dir= '/serenity/scratch/inshrinkarator/checkpoints/nanogpt_3-21/gpt2-medium_every_200ba'
-assert out_dir is not '', "out_dir not set"
+wandb_run_name='gpt2-medium_30k'
+out_dir= '/serenity/scratch/inshrinkarator/checkpoints/nanogpt_3-21/gpt2-medium_every_500ba_30k'
+assert out_dir != '', "out_dir not set"
 
 # these make the total batch size be ~0.6M
-# 18 batch size * 1024 block size * 4 gradaccum * 8 GPUs = 589,824
-batch_size = 18
+# 16 batch size * 1024 block size * 4 gradaccum * 8 GPUs = ~524M
+batch_size = 16
 block_size = 1024
 gradient_accumulation_steps = 4
 
-# this makes total number of tokens be ~4.7B
-max_iters = 10000
-lr_decay_iters = 10000
-warmup_iters = 100
+# this makes total number of tokens be ~15B
+max_iters = 30000
+lr_decay_iters = 30000
+warmup_iters = 200
 
 # eval stuff
-eval_interval = 200
+eval_interval = 500
 eval_iters = 100    # number of batches to for estimating eval and train losses
 log_interval = 10
 
