@@ -219,7 +219,7 @@ def estimate_loss():
         out[split] = losses.mean()
         perplexities[split] = torch.exp(out[split])
     model.train()
-    return out
+    return out, perplexities
 
 # learning rate decay scheduler (cosine with warmup)
 def get_lr(it):
@@ -261,11 +261,11 @@ while True:
         if eval_only:
             if wandb_log:
                 wandb.log({
-                    "eval_train_loss": losses['train'],
-                    "eval_val_loss": losses['val'],
-                    "eval_iters": eval_iters,
-                    "eval_train_perplexity": perplexities['train'],
-                    "eval_val_perplexity": perplexities['val'],
+                    f"{dataset}/eval_train_loss": losses['train'],
+                    f"{dataset}/eval_val_loss": losses['val'],
+                    f"{dataset}/eval_iters": eval_iters,
+                    f"{dataset}/eval_train_perplexity": perplexities['train'],
+                    f"{dataset}/eval_val_perplexity": perplexities['val'],
                 })
             break
         if wandb_log:

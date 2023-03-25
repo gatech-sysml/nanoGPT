@@ -2,8 +2,8 @@
 # Recommended datasets to try out:
 # - openwebtext
 # - lambada
-# - wikitext/wikitext2-v1
-# - wikitext/wikitext103-v1
+# - wikitext/wikitext-2-v1
+# - wikitext/wikitext-103-v1
 # https://github.com/HazyResearch/flash-attention/blob/main/training/src/datamodules/language_modeling_hf.py
 
 import argparse
