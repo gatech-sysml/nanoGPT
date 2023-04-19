@@ -181,6 +181,8 @@ elif init_from.startswith('gpt2'):
 if block_size < model.config.block_size:
     model.crop_block_size(block_size)
     model_args['block_size'] = block_size # so that the checkpoint will have the right value
+is_ckpt_resume_iter = lambda i: iter_num > 0 and init_from == 'resume' and i == checkpoint['iter_num'] 
+
 model.to(device)
 
 # initialize a GradScaler. If enabled=False scaler is a no-op
@@ -277,7 +279,7 @@ while True:
                 "mfu": running_mfu*100, # convert to percentage
             }, step=iter_num)
         if (
-            not eval_only and
+            not is_ckpt_resume_iter(iter_num)  and
             (losses['val'] < best_val_loss or always_save_checkpoint)
         ):
             best_val_loss = losses['val']
@@ -322,7 +324,7 @@ while True:
     t1 = time.time()
     dt = t1 - t0
     t0 = t1
-    if iter_num % log_interval == 0 and master_process:
+    if iter_num % log_interval == 0 and master_process and iter_num != 0:
         lossf = loss.item() # loss as float. note: this is a CPU-GPU sync point
         if local_iter_num >= 5: # let the training loop settle a bit
             mfu = raw_model.estimate_mfu(batch_size * gradient_accumulation_steps, dt)
