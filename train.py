@@ -27,6 +27,16 @@ import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 
+import sys
+from os.path import abspath
+repo_path = abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.append(repo_path)
+
+from inshrinkarator.core.compressor_registry import CompressorRegistry
+from inshrinkarator.core.types import System
+from inshrinkarator.utils.wandb_logger import WandbLogger
+from inshrinkarator.utils.stop_signal_handler import StopSignalHandler
+
 from model import GPTConfig, GPT
 os.environ["NCCL_P2P_LEVEL"] = "NVL"
 
@@ -74,6 +84,17 @@ backend = 'nccl' # 'nccl', 'gloo', etc.
 device = 'cuda' # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
 dtype = 'bfloat16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
 compile = True # use PyTorch 2.0 to compile the model to be faster
+
+# inshrinkarator settings
+checkpoint_batch_frequency = 0
+num_restores = 0 # Number of restores from compressed state
+search_metric = "loss" # Search metric
+threshold = 1 # Local drop threshold for search
+search_config = "default" # Search config
+search_strategy = "grid" # Search strategy
+num_eval_batches = 1 # Number of batches to evaluate
+system = "inshrinkarator" # System
+
 # -----------------------------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
 exec(open('configurator.py').read()) # overrides from command line or config file
@@ -138,6 +159,7 @@ if os.path.exists(meta_path):
 # model init
 model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
                   bias=bias, vocab_size=None, dropout=dropout) # start with model_args from command line
+checkpoint = None
 if init_from == 'scratch':
     # init a new model from scratch
     print("Initializing a new model from scratch")
@@ -181,7 +203,10 @@ elif init_from.startswith('gpt2'):
 if block_size < model.config.block_size:
     model.crop_block_size(block_size)
     model_args['block_size'] = block_size # so that the checkpoint will have the right value
-is_ckpt_resume_iter = lambda i: iter_num > 0 and init_from == 'resume' and i == checkpoint['iter_num'] 
+
+# helper functions for checkpointing
+is_ckpt_resume_iter = lambda i: iter_num > 0 and init_from == 'resume' and i == checkpoint['iter_num']
+is_ckpt_batch = lambda i: checkpoint_batch_frequency and iter_num > 0 and i % checkpoint_batch_frequency == 0
 
 model.to(device)
 
@@ -237,10 +262,32 @@ def get_lr(it):
     coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio)) # coeff ranges 0..1
     return min_lr + coeff * (learning_rate - min_lr)
 
-# logging
-if wandb_log and master_process:
-    import wandb
-    wandb.init(project=wandb_project, name=wandb_run_name, config=config)
+# load inshrinkarator compressor and utils
+wandb_logger = WandbLogger(wandb_project, 'gpt2', system, search_metric, threshold, num_restores, checkpoint, config)
+eval_batches = [get_batch('val') for _ in range(num_eval_batches)]
+# map eval_batches to cpu
+eval_batches = [(X.cpu(), Y.cpu()) for X, Y in eval_batches]
+system = System.from_str(system)
+if system == System.DISABLED:
+    compressor = None
+else:
+    compressor = CompressorRegistry.get_compressor(
+        system,
+        model,
+        eval_batches,
+        search_config,
+        search_metric,
+        threshold,
+        max_iters,
+        num_restores,
+        wandb_logger,
+        distributed=ddp,
+        exclude_params=[
+            "transformer.wpe.weight",
+            "lm_head.weight",
+        ],
+    )
+stop_signal_handler = StopSignalHandler()
 
 # training loop
 X, Y = get_batch('train') # fetch the very first batch
@@ -255,14 +302,14 @@ while True:
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
-    # evaluate the loss on train/val sets and write checkpoints
+    # evaluate the loss on train/val
     if iter_num % eval_interval == 0 and master_process:
         losses, perplexities = estimate_loss()
         print(
             f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
         if eval_only:
             if wandb_log:
-                wandb.log({
+                wandb_logger.log({
                     f"{dataset}/eval_train_loss": losses['train'],
                     f"{dataset}/eval_val_loss": losses['val'],
                     f"{dataset}/eval_iters": eval_iters,
@@ -270,31 +317,44 @@ while True:
                     f"{dataset}/eval_val_perplexity": perplexities['val'],
                 })
             break
+
         if wandb_log:
-            wandb.log({
+            wandb_logger.log({
                 "iter": iter_num,
                 "train/loss": losses['train'],
                 "val/loss": losses['val'],
                 "lr": lr,
                 "mfu": running_mfu*100, # convert to percentage
             }, step=iter_num)
-        if (
-            not is_ckpt_resume_iter(iter_num)  and
-            (losses['val'] < best_val_loss or always_save_checkpoint)
-        ):
-            best_val_loss = losses['val']
-            if iter_num > 0:
-                checkpoint = {
-                    'model': raw_model.state_dict(),
-                    'optimizer': optimizer.state_dict(),
-                    'model_args': model_args,
-                    'iter_num': iter_num,
-                    'best_val_loss': best_val_loss,
-                    'config': config,
-                }
-                print(f"saving checkpoint to {out_dir}")
-                torch.save(checkpoint, os.path.join(out_dir, f'ckpt_step_{iter_num}.pt'))
 
+    # checkpointing
+    reached_checkpoint_batch = (
+        not is_ckpt_resume_iter(iter_num) and
+        is_ckpt_batch(iter_num)
+    )
+    if reached_checkpoint_batch or stop_signal_handler.should_stop():
+        if compressor:
+            compressor.compress(iter_num, ignore_epoch_check=True)
+
+        checkpoint = {
+            'model': raw_model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'model_args': model_args,
+            'iter_num': iter_num,
+            'config': config,
+        }
+        if wandb_logger.to_dict():
+            checkpoint.update(wandb_logger.to_dict())
+        if master_process:
+            print(f"saving checkpoint to {out_dir}")
+            torch.save(checkpoint, os.path.join(out_dir, f'ckpt_step_{iter_num}.pt'))
+            torch.save(checkpoint, os.path.join(out_dir, 'latest.pt'))
+
+    if compressor:
+        compressor.before_gradient_flush()
+
+    # flush the gradients as soon as we can, no need for this memory anymore
+    optimizer.zero_grad(set_to_none=True)
     # forward backward update, with optional gradient accumulation to simulate larger batch size
     # and using the GradScaler if data type is float16
     for micro_step in range(gradient_accumulation_steps):
@@ -306,6 +366,7 @@ while True:
             model.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
         with ctx:
             logits, loss = model(X, Y)
+
         # immediately async prefetch next batch while model is doing the forward pass on the GPU
         X, Y = get_batch('train')
         # backward pass, with gradient scaling if training in fp16
@@ -314,11 +375,13 @@ while True:
     if grad_clip != 0.0:
         scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+
+    if compressor:
+        compressor.on_backward_pass_end()
+
     # step the optimizer and scaler if training in fp16
     scaler.step(optimizer)
     scaler.update()
-    # flush the gradients as soon as we can, no need for this memory anymore
-    optimizer.zero_grad(set_to_none=True)
 
     # timing and logging
     t1 = time.time()
@@ -332,6 +395,8 @@ while True:
         print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms/it, mfu {running_mfu*100:.2f}%")
     iter_num += 1
     local_iter_num += 1
+
+    stop_signal_handler.stop_if_required()
 
     # termination conditions
     if iter_num > max_iters:

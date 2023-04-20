@@ -3,8 +3,7 @@
 always_save_checkpoint = True
 wandb_log = True
 wandb_project = 'inshrinkarator_nanogpt'
-wandb_run_name='gpt2-medium_30k'
-out_dir= '/serenity/scratch/inshrinkarator/checkpoints/nanogpt_3-21/gpt2-medium_every_500ba_30k'
+out_dir= '/serenity/scratch/inshrinkarator/checkpoints/inshrinkarator-nanogpt-scratch/gpt2-medium_every_500ba_30k'
 assert out_dir != '', "out_dir not set"
 
 # these make the total batch size be ~0.6M
