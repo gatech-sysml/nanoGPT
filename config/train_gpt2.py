@@ -33,3 +33,5 @@ n_embd = 1024
 # learning rates
 learning_rate = 4e-4 #
 min_lr = 4e-5
+
+checkpoint_batch_frequency = 500

@@ -278,7 +278,7 @@ else:
         search_config,
         search_metric,
         threshold,
-        max_iters,
+        max_iters // checkpoint_batch_frequency,
         num_restores,
         wandb_logger,
         distributed=ddp,
@@ -310,22 +310,13 @@ while True:
         if eval_only:
             if wandb_log:
                 wandb_logger.log({
-                    f"{dataset}/eval_train_loss": losses['train'],
-                    f"{dataset}/eval_val_loss": losses['val'],
-                    f"{dataset}/eval_iters": eval_iters,
-                    f"{dataset}/eval_train_perplexity": perplexities['train'],
-                    f"{dataset}/eval_val_perplexity": perplexities['val'],
+                    "eval/train_loss": losses['train'],
+                    "eval/val_loss": losses['val'],
+                    "eval/iters": eval_iters,
+                    "eval/train_perplexity": perplexities['train'],
+                    "eval/val_perplexity": perplexities['val'],
                 })
             break
-
-        if wandb_log:
-            wandb_logger.log({
-                "iter": iter_num,
-                "train/loss": losses['train'],
-                "val/loss": losses['val'],
-                "lr": lr,
-                "mfu": running_mfu*100, # convert to percentage
-            }, step=iter_num)
 
     # checkpointing
     reached_checkpoint_batch = (
@@ -334,7 +325,7 @@ while True:
     )
     if reached_checkpoint_batch or stop_signal_handler.should_stop():
         if compressor:
-            compressor.compress(iter_num, ignore_epoch_check=True)
+            compressor.compress(iter_num // checkpoint_batch_frequency)
 
         checkpoint = {
             'model': raw_model.state_dict(),
@@ -393,6 +384,15 @@ while True:
             mfu = raw_model.estimate_mfu(batch_size * gradient_accumulation_steps, dt)
             running_mfu = mfu if running_mfu == -1.0 else 0.9*running_mfu + 0.1*mfu
         print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms/it, mfu {running_mfu*100:.2f}%")
+        
+        if wandb_log:
+            wandb_logger.log({
+                "iter": iter_num,
+                "train/loss": lossf,
+                "lr": lr,
+                "mfu": running_mfu * 100, # convert to percentage
+            }, step=iter_num)
+
     iter_num += 1
     local_iter_num += 1
 
