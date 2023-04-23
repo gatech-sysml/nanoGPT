@@ -219,6 +219,7 @@ if init_from == 'resume':
     optimizer.load_state_dict(checkpoint['optimizer'])
 
 # compile the model
+unoptimized_model = None
 if compile:
     print("compiling the model... (takes a ~minute)")
     unoptimized_model = model
@@ -227,6 +228,16 @@ if compile:
 # wrap model into DDP container
 if ddp:
     model = DDP(model, device_ids=[ddp_local_rank])
+    if unoptimized_model:
+        unoptimized_model = DDP(unoptimized_model, device_ids=[ddp_local_rank])
+
+
+def print_model_checksum(model):
+    checksum = 0
+    for p in model.parameters():
+        checksum += p.sum().item()
+
+    print(f"model checksum = {checksum}")
 
 # helps estimate an arbitrarily accurate loss over either split using many batches
 @torch.no_grad()
@@ -273,7 +284,7 @@ if system == System.DISABLED:
 else:
     compressor = CompressorRegistry.get_compressor(
         system,
-        model,
+        unoptimized_model if unoptimized_model else model,
         eval_batches,
         search_config,
         search_metric,
