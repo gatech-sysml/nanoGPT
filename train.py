@@ -43,6 +43,7 @@ os.environ["NCCL_P2P_LEVEL"] = "NVL"
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
 # I/O
+data_root = '/serenity/data/datasets/'
 ckpt_path = ''
 out_dir = 'out'
 eval_interval = 2000
@@ -128,7 +129,7 @@ ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torc
 ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 
 # poor man's data loader
-data_dir = os.path.join('/serenity/data/datasets/', dataset)
+data_dir = os.path.join(data_root, dataset)
 train_data = np.memmap(os.path.join(data_dir, 'train.bin'), dtype=np.uint16, mode='r')
 val_data = np.memmap(os.path.join(data_dir, 'val.bin'), dtype=np.uint16, mode='r')
 def get_batch(split):
