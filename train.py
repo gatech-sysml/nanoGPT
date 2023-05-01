@@ -326,7 +326,7 @@ while True:
                 "eval/iters": eval_iters,
                 "eval/train_perplexity": perplexities['train'],
                 "eval/val_perplexity": perplexities['val'],
-            })
+            }, step=iter_num)
         if eval_only:
             break
 
@@ -337,7 +337,11 @@ while True:
     )
     if reached_checkpoint_batch or stop_signal_handler.should_stop():
         if compressor:
-            compressor.compress(iter_num // checkpoint_batch_frequency)
+            compressor.compress(
+                epoch=iter_num // checkpoint_batch_frequency,
+                step=iter_num,
+                ckpt_save_path=os.path.join(out_dir, f'compressed_ckpt_step_{iter_num}.pt'),
+            )
 
         checkpoint = {
             'model': raw_model.state_dict(),
