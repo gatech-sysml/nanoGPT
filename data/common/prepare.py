@@ -16,7 +16,7 @@ from datasets import load_dataset # huggingface datasets
 # Parse args
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, help="dataset to use. for subsets like wikitext use with slash like 'wikitext/wikitext-2-raw-v1'")
-parser.add_argument('--out_root', type=str, help='output directory root', default='/serenity/data/datasets/')
+parser.add_argument('--out_root', type=str, help='output directory root', default=os.path.dirname(os.path.realpath(__file__)))
 args = parser.parse_args()
 
 # make output directory

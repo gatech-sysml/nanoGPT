@@ -94,7 +94,7 @@ threshold = 1 # Local drop threshold for search
 search_config = "default" # Search config
 search_strategy = "grid" # Search strategy
 num_eval_batches = 1 # Number of batches to evaluate
-system = "inshrinkarator" # System
+system = "disabled" # System
 
 # -----------------------------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
@@ -254,8 +254,6 @@ def estimate_loss():
             with ctx:
                 logits, loss = model(X, Y)
             losses[k] = loss.item()
-            if eval_only and master_process:
-                print(f"eval iter {k}, {split} loss = {loss.item()}", flush=True, end='\r')
         out[split] = losses.mean()
         perplexities[split] = torch.exp(out[split])
     model.train()
