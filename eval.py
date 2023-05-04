@@ -203,7 +203,7 @@ with tqdm(ix) as pbar:
         # input and target ids
         x = torch.from_numpy(val_data[begin_loc:end_loc].astype(np.int64))
         y = torch.from_numpy(val_data[begin_loc + 1:end_loc + 1].astype(np.int64))
-        y[:-stride] = -100 # don't include context in loss calculation
+        y[:-stride] = -1 # don't include context in loss calculation
         x = x.unsqueeze(0)
         y = y.unsqueeze(0)
 
