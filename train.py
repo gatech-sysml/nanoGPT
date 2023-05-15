@@ -43,6 +43,7 @@ os.environ["NCCL_P2P_LEVEL"] = "NVL"
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
 # I/O
+data_root = '/serenity/data/datasets/'
 ckpt_path = ''
 out_dir = 'out'
 eval_interval = 2000
@@ -93,7 +94,7 @@ threshold = 1 # Local drop threshold for search
 search_config = "default" # Search config
 search_strategy = "grid" # Search strategy
 num_eval_batches = 1 # Number of batches to evaluate
-system = "inshrinkarator" # System
+system = "disabled" # System
 
 # -----------------------------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
@@ -128,7 +129,7 @@ ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torc
 ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 
 # poor man's data loader
-data_dir = os.path.join('/serenity/data/datasets/', dataset)
+data_dir = os.path.join(data_root, dataset)
 train_data = np.memmap(os.path.join(data_dir, 'train.bin'), dtype=np.uint16, mode='r')
 val_data = np.memmap(os.path.join(data_dir, 'val.bin'), dtype=np.uint16, mode='r')
 def get_batch(split):
@@ -190,6 +191,10 @@ elif init_from == 'resume':
             state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
     model.load_state_dict(state_dict)
     iter_num = checkpoint['iter_num']
+
+    if 'best_val_loss' in checkpoint:
+        best_val_loss = checkpoint['best_val_loss']
+
 elif init_from.startswith('gpt2'):
     print(f"Initializing from OpenAI GPT-2 weights: {init_from}")
     # initialize from OpenAI GPT-2 weights
@@ -251,8 +256,6 @@ def estimate_loss():
             with ctx:
                 logits, loss = model(X, Y)
             losses[k] = loss.item()
-            if eval_only and master_process:
-                print(f"eval iter {k}, {split} loss = {loss.item()}", flush=True, end='\r')
         out[split] = losses.mean()
         perplexities[split] = torch.exp(out[split])
     model.train()
@@ -317,15 +320,15 @@ while True:
         losses, perplexities = estimate_loss()
         print(
             f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+        if wandb_log:
+            wandb_logger.log({
+                "eval/train_loss": losses['train'],
+                "eval/val_loss": losses['val'],
+                "eval/iters": eval_iters,
+                "eval/train_perplexity": perplexities['train'],
+                "eval/val_perplexity": perplexities['val'],
+            }, step=iter_num)
         if eval_only:
-            if wandb_log:
-                wandb_logger.log({
-                    "eval/train_loss": losses['train'],
-                    "eval/val_loss": losses['val'],
-                    "eval/iters": eval_iters,
-                    "eval/train_perplexity": perplexities['train'],
-                    "eval/val_perplexity": perplexities['val'],
-                })
             break
 
     # checkpointing
@@ -335,7 +338,11 @@ while True:
     )
     if reached_checkpoint_batch or stop_signal_handler.should_stop():
         if compressor:
-            compressor.compress(iter_num // checkpoint_batch_frequency)
+            compressor.compress(
+                epoch=iter_num // checkpoint_batch_frequency,
+                step=iter_num,
+                ckpt_save_path=os.path.join(out_dir, f'compressed_ckpt_step_{iter_num}.pt'),
+            )
 
         checkpoint = {
             'model': raw_model.state_dict(),
@@ -394,7 +401,7 @@ while True:
             mfu = raw_model.estimate_mfu(batch_size * gradient_accumulation_steps, dt)
             running_mfu = mfu if running_mfu == -1.0 else 0.9*running_mfu + 0.1*mfu
         print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms/it, mfu {running_mfu*100:.2f}%")
-        
+
         if wandb_log:
             wandb_logger.log({
                 "iter": iter_num,
