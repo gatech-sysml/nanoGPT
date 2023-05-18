@@ -341,7 +341,7 @@ while True:
             compressor.compress(
                 epoch=iter_num // checkpoint_batch_frequency,
                 step=iter_num,
-                ckpt_save_path=os.path.join(out_dir, f'compressed_ckpt_step_{iter_num}.pt'),
+                checkpoint_save_path=os.path.join(out_dir, f'compressed_ckpt_step_{iter_num}.pt'),
             )
 
         checkpoint = {
