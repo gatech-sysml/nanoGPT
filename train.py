@@ -281,12 +281,14 @@ eval_batches = [get_batch('val') for _ in range(num_eval_batches)]
 # map eval_batches to cpu
 eval_batches = [(X.cpu(), Y.cpu()) for X, Y in eval_batches]
 system = System.from_str(system)
+
 if system == System.DISABLED:
     compressor = None
 else:
     compressor = CompressorRegistry.get_compressor(
         system,
         unoptimized_model if unoptimized_model else model,
+        optimizer,
         eval_batches,
         search_config,
         search_metric,
